@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Worker, WebhookVerificationError } from "@notionhq/workers";
-import type { Client } from "@notionhq/client";
+import type { Client, PageObjectResponse } from "@notionhq/client";
 
 const worker = new Worker();
 export default worker;
@@ -206,6 +206,50 @@ async function createNotionPage(
 
 	// Notion page URLs use the ID without dashes
 	return `https://notion.so/${page.id.replace(/-/g, "")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Notion history query
+// ---------------------------------------------------------------------------
+
+interface DecisionRecord {
+	decision_made: string;
+	rationale: string;
+	decision_type: string;
+	created_time: string;
+}
+
+async function querySystemHistory(notion: Client, systemAffected: string): Promise<DecisionRecord[]> {
+	const databaseId = process.env.DATABASE_ID;
+	if (!databaseId) throw new Error("DATABASE_ID not configured");
+
+	const response = await notion.dataSources.query({
+		data_source_id: databaseId,
+		filter: {
+			property: "System Affected",
+			rich_text: { contains: systemAffected },
+		},
+		sorts: [{ timestamp: "created_time", direction: "ascending" }],
+		page_size: 10,
+	});
+
+	type PropSlice = Record<string, {
+		title?: Array<{ plain_text: string }>;
+		rich_text?: Array<{ plain_text: string }>;
+		select?: { name: string } | null;
+	}>;
+
+	return response.results.flatMap((result) => {
+		if (result.object !== "page" || !("created_time" in result)) return [];
+		const page = result as PageObjectResponse;
+		const props = page.properties as unknown as PropSlice;
+		return [{
+			decision_made: props["Decision"]?.title?.[0]?.plain_text ?? "",
+			rationale: props["Rationale"]?.rich_text?.[0]?.plain_text ?? "",
+			decision_type: props["Decision Type"]?.select?.name ?? "",
+			created_time: page.created_time,
+		}];
+	});
 }
 
 // ---------------------------------------------------------------------------
