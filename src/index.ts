@@ -358,25 +358,48 @@ async function upsertSystemPage(
 	systemAffected: string,
 	content: string,
 ): Promise<string> {
-	const richText = (text: string) => [{ type: "text" as const, text: { content: text } }];
+	const plainText = (text: string) => [{ type: "text" as const, text: { content: text } }];
+
+	function parseInlineBold(text: string) {
+		const parts = text.split("**");
+		return parts.map((part, i) => ({
+			type: "text" as const,
+			text: { content: part },
+			...(i % 2 === 1 ? { annotations: { bold: true as const } } : {}),
+		})).filter((rt) => rt.text.content.length > 0);
+	}
+
 	const blocks: BlockObjectRequest[] = [];
 	let firstH2 = true;
+	let inCodeBlock = false;
+	const codeBuffer: string[] = [];
 
 	for (const line of content.split("\n")) {
-		if (line.startsWith("## ")) {
+		if (line.startsWith("```")) {
+			if (inCodeBlock) {
+				blocks.push({
+					type: "code",
+					code: { rich_text: plainText(codeBuffer.join("\n")), language: "typescript" },
+				});
+				codeBuffer.length = 0;
+			}
+			inCodeBlock = !inCodeBlock;
+		} else if (inCodeBlock) {
+			codeBuffer.push(line);
+		} else if (line.startsWith("## ")) {
 			if (!firstH2) blocks.push({ type: "divider", divider: {} });
 			firstH2 = false;
-			blocks.push({ type: "heading_2", heading_2: { rich_text: richText(line.slice(3)) } });
+			blocks.push({ type: "heading_2", heading_2: { rich_text: parseInlineBold(line.slice(3)) } });
 		} else if (line.startsWith("### ")) {
-			blocks.push({ type: "heading_3", heading_3: { rich_text: richText(line.slice(4)) } });
+			blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(line.slice(4)) } });
 		} else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
-			blocks.push({ type: "heading_3", heading_3: { rich_text: richText(line.slice(2, -2)) } });
+			blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(line.slice(2, -2)) } });
 		} else if (line.startsWith("- ") || line.startsWith("* ")) {
-			blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: richText(line.slice(2)) } });
+			blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: parseInlineBold(line.slice(2)) } });
 		} else if (/^\d+\.\s/.test(line)) {
-			blocks.push({ type: "numbered_list_item", numbered_list_item: { rich_text: richText(line.replace(/^\d+\.\s/, "")) } });
+			blocks.push({ type: "numbered_list_item", numbered_list_item: { rich_text: parseInlineBold(line.replace(/^\d+\.\s/, "")) } });
 		} else if (line.trim().length > 0) {
-			blocks.push({ type: "paragraph", paragraph: { rich_text: richText(line) } });
+			blocks.push({ type: "paragraph", paragraph: { rich_text: parseInlineBold(line) } });
 		}
 	}
 
