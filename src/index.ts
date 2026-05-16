@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import { Worker, WebhookVerificationError } from "@notionhq/workers";
+import * as Builder from "@notionhq/workers/builder";
+import * as Schema from "@notionhq/workers/schema";
 import type { BlockObjectRequest, Client, PageObjectResponse } from "@notionhq/client";
 
 const worker = new Worker();
@@ -350,43 +352,41 @@ Use markdown. Be specific and technical. Synthesize patterns across the full his
 }
 
 // ---------------------------------------------------------------------------
-// System page upsert
+// Markdown → Notion block parser
 // ---------------------------------------------------------------------------
 
-async function upsertSystemPage(
-	notion: Client,
-	systemAffected: string,
-	content: string,
-): Promise<string> {
-	const plainText = (text: string) => [{ type: "text" as const, text: { content: text } }];
+function plainText(text: string) {
+	return [{ type: "text" as const, text: { content: text } }];
+}
 
-	function parseInlineBold(text: string) {
-		const result: Array<{ type: "text"; text: { content: string }; annotations?: { bold?: boolean; code?: boolean } }> = [];
-		// Split on backticks first; odd-indexed segments are inline code spans.
-		const codeSegments = text.split("`");
-		for (let ci = 0; ci < codeSegments.length; ci++) {
-			const segment = codeSegments[ci];
-			if (ci % 2 === 1) {
-				if (segment.length > 0) {
-					result.push({ type: "text", text: { content: segment }, annotations: { code: true } });
-				}
-			} else {
-				// Outside backticks — split on ** for bold.
-				const boldParts = segment.split("**");
-				for (let bi = 0; bi < boldParts.length; bi++) {
-					const part = boldParts[bi];
-					if (part.length > 0) {
-						result.push(bi % 2 === 1
-							? { type: "text", text: { content: part }, annotations: { bold: true } }
-							: { type: "text", text: { content: part } },
-						);
-					}
+function parseInlineBold(text: string) {
+	const result: Array<{ type: "text"; text: { content: string }; annotations?: { bold?: boolean; code?: boolean } }> = [];
+	// Split on backticks first; odd-indexed segments are inline code spans.
+	const codeSegments = text.split("`");
+	for (let ci = 0; ci < codeSegments.length; ci++) {
+		const segment = codeSegments[ci];
+		if (ci % 2 === 1) {
+			if (segment.length > 0) {
+				result.push({ type: "text", text: { content: segment }, annotations: { code: true } });
+			}
+		} else {
+			// Outside backticks — split on ** for bold.
+			const boldParts = segment.split("**");
+			for (let bi = 0; bi < boldParts.length; bi++) {
+				const part = boldParts[bi];
+				if (part.length > 0) {
+					result.push(bi % 2 === 1
+						? { type: "text", text: { content: part }, annotations: { bold: true } }
+						: { type: "text", text: { content: part } },
+					);
 				}
 			}
 		}
-		return result;
 	}
+	return result;
+}
 
+function contentToBlocks(content: string): BlockObjectRequest[] {
 	const blocks: BlockObjectRequest[] = [];
 	let firstH2 = true;
 	let inCodeBlock = false;
@@ -406,10 +406,7 @@ async function upsertSystemPage(
 		} else if (inCodeBlock) {
 			codeBuffer.push(line);
 		} else if (line.startsWith("|") && line.endsWith("|")) {
-			// Skip separator rows (contain only |, -, and spaces).
-			if (/^[\|\-\s]+$/.test(line)) {
-				continue;
-			}
+			if (/^[\|\-\s]+$/.test(line)) continue;
 			const cells = line.slice(1, -1).split("|").map((c) => c.trim());
 			if (!tableHeaderEmitted) {
 				blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(cells.join(" · ")) } });
@@ -418,7 +415,6 @@ async function upsertSystemPage(
 				blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: parseInlineBold(cells.join(" → ")) } });
 			}
 		} else {
-			// Any non-table line resets the table header flag for the next table.
 			tableHeaderEmitted = false;
 			if (line.startsWith("## ")) {
 				if (!firstH2) blocks.push({ type: "divider", divider: {} });
@@ -437,6 +433,19 @@ async function upsertSystemPage(
 			}
 		}
 	}
+	return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// System page upsert
+// ---------------------------------------------------------------------------
+
+async function upsertSystemPage(
+	notion: Client,
+	systemAffected: string,
+	content: string,
+): Promise<string> {
+	const blocks = contentToBlocks(content);
 
 	// Search for an existing page whose title exactly matches systemAffected
 	const searchResult = await notion.search({
@@ -535,5 +544,134 @@ worker.webhook("onPullRequest", {
 			await postGitHubComment(repository.full_name, pr.number, notionUrl, analysis, systemPageUrl);
 			console.log("[driftlog] GitHub comment posted");
 		}
+	},
+});
+
+// ---------------------------------------------------------------------------
+// Weekly digest sync
+// ---------------------------------------------------------------------------
+
+const digestLog = worker.database("digestLog", {
+	type: "managed",
+	initialTitle: "Driftlog — Weekly Digests",
+	primaryKeyProperty: "Week",
+	schema: {
+		properties: {
+			Week: Schema.title(),
+			"Digest URL": Schema.url(),
+		},
+	},
+});
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+// Runs every 7 days. The SDK supports interval strings only ("7d") — cron
+// expressions ("0 9 * * 1") are not yet supported.
+worker.sync("weeklyDigest", {
+	database: digestLog,
+	mode: "incremental",
+	schedule: "7d",
+	execute: async (_state, { notion }) => {
+		const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+		// Fetch ADRs created in the last 7 days.
+		const adrRes = await fetch(`https://api.notion.com/v1/databases/${process.env.DATABASE_ID}/query`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${process.env.NOTION_API_TOKEN}`,
+				"Notion-Version": "2022-06-28",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				filter: { timestamp: "created_time", created_time: { on_or_after: sevenDaysAgo } },
+			}),
+		});
+
+		if (!adrRes.ok) throw new Error(`Notion API error ${adrRes.status}: ${await adrRes.text()}`);
+
+		type AdrPage = {
+			created_time: string;
+			properties: Record<string, {
+				title?: Array<{ plain_text: string }>;
+				rich_text?: Array<{ plain_text: string }>;
+				select?: { name: string } | null;
+			}>;
+		};
+		const adrData = (await adrRes.json()) as { results: Array<AdrPage> };
+
+		if (adrData.results.length === 0) {
+			console.log("[driftlog] No ADRs this week, skipping digest");
+			return { changes: [], hasMore: false };
+		}
+
+		const decisionList = adrData.results.map((p) => {
+			const props = p.properties;
+			return `- [${p.created_time.slice(0, 10)}] (${props["Decision Type"]?.select?.name ?? "unknown"}) ${props["Decision"]?.title?.[0]?.plain_text ?? ""} — ${props["System Affected"]?.rich_text?.[0]?.plain_text ?? ""}`;
+		}).join("\n");
+
+		// Generate digest with Claude.
+		const apiKey = process.env.ANTHROPIC_API_KEY;
+		if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
+
+		const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+			method: "POST",
+			headers: {
+				"x-api-key": apiKey,
+				"anthropic-version": "2023-06-01",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "claude-sonnet-4-6",
+				max_tokens: 2048,
+				messages: [{
+					role: "user",
+					content: `You are a staff engineer writing a weekly architecture digest for the team.
+
+Here are the architectural decisions recorded this week:
+${decisionList}
+
+Write a "This Week in Architecture" digest with exactly these four sections in order:
+## 🗓️ This Week in Architecture
+## 📊 Decision Summary
+## 🔍 Key Themes
+## ⚠️ Watch List (systems with multiple changes that may need attention)
+
+Use markdown. Be specific and concise. Do not add any sections beyond the four listed.`,
+				}],
+			}),
+		});
+
+		if (!claudeRes.ok) throw new Error(`Anthropic API error ${claudeRes.status}: ${await claudeRes.text()}`);
+
+		const claudeData = (await claudeRes.json()) as { content: Array<{ type: string; text: string }> };
+		const digestContent = claudeData.content.find((c) => c.type === "text")?.text;
+		if (!digestContent) throw new Error("Anthropic returned no text content");
+
+		// Create the digest page under SYSTEM_MAP_PAGE_ID.
+		const now = new Date();
+		const weekTitle = `Week of ${MONTHS[now.getMonth()]} ${now.getDate()} ${now.getFullYear()}`;
+
+		const digestPage = await notion.pages.create({
+			parent: { page_id: process.env.SYSTEM_MAP_PAGE_ID! },
+			properties: {
+				title: { title: [{ text: { content: weekTitle } }] },
+			},
+			children: contentToBlocks(digestContent),
+		});
+
+		const digestUrl = `https://notion.so/${digestPage.id.replace(/-/g, "")}`;
+		console.log("[driftlog] Digest page created:", digestUrl);
+
+		return {
+			changes: [{
+				type: "upsert" as const,
+				key: weekTitle,
+				properties: {
+					Week: Builder.title(weekTitle),
+					"Digest URL": Builder.url(digestUrl),
+				},
+			}],
+			hasMore: false,
+		};
 	},
 });
