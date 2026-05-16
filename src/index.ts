@@ -77,10 +77,11 @@ async function postGitHubComment(
 	prNumber: number,
 	notionUrl: string,
 	analysis: ArchitecturalAnalysis,
+	driftResult: { has_drift: boolean; drift_summary: string; conflicting_decision: string },
 	systemPageUrl: string,
 ): Promise<void> {
 	const token = process.env.GITHUB_TOKEN;
-	const body = [
+	const lines = [
 		"## Driftlog — Architectural Decision Recorded",
 		"",
 		`**Decision:** ${analysis.decision_made}`,
@@ -90,7 +91,16 @@ async function postGitHubComment(
 		"",
 		`[View full rationale in Notion](${notionUrl})`,
 		`[View system architecture page in Notion](${systemPageUrl})`,
-	].join("\n");
+	];
+	if (driftResult.has_drift) {
+		lines.push(
+			"",
+			"⚠️ Architectural Drift Detected",
+			driftResult.drift_summary,
+			`Conflicts with prior decision: ${driftResult.conflicting_decision}`,
+		);
+	}
+	const body = lines.join("\n");
 
 	const res = await fetch(`https://api.github.com/repos/${repoFullName}/issues/${prNumber}/comments`, {
 		method: "POST",
@@ -572,7 +582,7 @@ worker.webhook("onPullRequest", {
 			const systemPageUrl = await upsertSystemPage(notion, analysis.system_affected, systemPageContent);
 			console.log("[driftlog] System page upserted:", systemPageUrl);
 
-			await postGitHubComment(repository.full_name, pr.number, notionUrl, analysis, systemPageUrl);
+			await postGitHubComment(repository.full_name, pr.number, notionUrl, analysis, driftResult, systemPageUrl);
 			console.log("[driftlog] GitHub comment posted");
 		}
 	},
