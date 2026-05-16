@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Worker, WebhookVerificationError } from "@notionhq/workers";
 import * as Builder from "@notionhq/workers/builder";
 import * as Schema from "@notionhq/workers/schema";
+import { j } from "@notionhq/workers/schema-builder";
 import type { BlockObjectRequest, Client, PageObjectResponse } from "@notionhq/client";
 
 const worker = new Worker();
@@ -632,6 +633,19 @@ worker.webhook("onPullRequest", {
 			console.log("[driftlog] GitHub comment posted");
 		}
 	},
+});
+
+// ---------------------------------------------------------------------------
+// Architecture query tool
+// ---------------------------------------------------------------------------
+
+worker.tool("queryArchitecture", {
+	title: "Query Architecture Decisions",
+	description: "Ask a natural language question about the architectural decisions recorded in this codebase. Returns a synthesized answer based on the full ADR history.",
+	schema: j.object({
+		question: j.string().describe("The natural language question to ask about the codebase architecture"),
+	}),
+	execute: () => "Not yet implemented",
 });
 
 // ---------------------------------------------------------------------------
