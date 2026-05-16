@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Worker, WebhookVerificationError } from "@notionhq/workers";
-import type { Client, PageObjectResponse } from "@notionhq/client";
+import type { BlockObjectRequest, Client, PageObjectResponse } from "@notionhq/client";
 
 const worker = new Worker();
 export default worker;
@@ -299,10 +299,10 @@ Latest decision:
 - Files: ${latestAnalysis.files_changed.join(", ")}
 
 Write the page with exactly these four sections in order:
-## What this system does
-## Key decisions made
-## Emerging patterns
-## Current architectural state
+## 🔍 What this system does
+## 📋 Key decisions made
+## 🔮 Emerging patterns
+## 🏗️ Current architectural state
 
 Use markdown. Be specific and technical. Do not add any sections beyond the four listed.`
 		: `You are a software architect. Write a rich system architecture page for the system "${systemAffected}" based on its full decision history and the latest change.
@@ -317,10 +317,10 @@ Latest decision:
 - Files: ${latestAnalysis.files_changed.join(", ")}
 
 Write the page with exactly these four sections in order:
-## What this system does
-## Key decisions made
-## Emerging patterns
-## Current architectural state
+## 🔍 What this system does
+## 📋 Key decisions made
+## 🔮 Emerging patterns
+## 🏗️ Current architectural state
 
 Use markdown. Be specific and technical. Synthesize patterns across the full history. Do not add any sections beyond the four listed.`;
 
@@ -358,15 +358,27 @@ async function upsertSystemPage(
 	systemAffected: string,
 	content: string,
 ): Promise<string> {
-	const paragraphBlocks = content
-		.split("\n")
-		.filter((line) => line.trim().length > 0)
-		.map((line) => ({
-			type: "paragraph" as const,
-			paragraph: {
-				rich_text: [{ type: "text" as const, text: { content: line } }],
-			},
-		}));
+	const richText = (text: string) => [{ type: "text" as const, text: { content: text } }];
+	const blocks: BlockObjectRequest[] = [];
+	let firstH2 = true;
+
+	for (const line of content.split("\n")) {
+		if (line.startsWith("## ")) {
+			if (!firstH2) blocks.push({ type: "divider", divider: {} });
+			firstH2 = false;
+			blocks.push({ type: "heading_2", heading_2: { rich_text: richText(line.slice(3)) } });
+		} else if (line.startsWith("### ")) {
+			blocks.push({ type: "heading_3", heading_3: { rich_text: richText(line.slice(4)) } });
+		} else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
+			blocks.push({ type: "heading_3", heading_3: { rich_text: richText(line.slice(2, -2)) } });
+		} else if (line.startsWith("- ") || line.startsWith("* ")) {
+			blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: richText(line.slice(2)) } });
+		} else if (/^\d+\.\s/.test(line)) {
+			blocks.push({ type: "numbered_list_item", numbered_list_item: { rich_text: richText(line.replace(/^\d+\.\s/, "")) } });
+		} else if (line.trim().length > 0) {
+			blocks.push({ type: "paragraph", paragraph: { rich_text: richText(line) } });
+		}
+	}
 
 	// Search for an existing page whose title exactly matches systemAffected
 	const searchResult = await notion.search({
@@ -394,7 +406,7 @@ async function upsertSystemPage(
 		// Append fresh content
 		await notion.blocks.children.append({
 			block_id: existing.id,
-			children: paragraphBlocks,
+			children: blocks,
 		});
 
 		return `https://notion.so/${existing.id.replace(/-/g, "")}`;
@@ -406,7 +418,7 @@ async function upsertSystemPage(
 		properties: {
 			title: { title: [{ text: { content: systemAffected } }] },
 		},
-		children: paragraphBlocks,
+		children: blocks,
 	});
 
 	return `https://notion.so/${page.id.replace(/-/g, "")}`;
