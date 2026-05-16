@@ -225,15 +225,30 @@ async function querySystemHistory(notion: Client, systemAffected: string): Promi
 	const databaseId = process.env.DATABASE_ID;
 	if (!databaseId) throw new Error("DATABASE_ID not configured");
 
-	const response = await notion.dataSources.query({
-		data_source_id: databaseId,
-		filter: {
-			property: "System Affected",
-			rich_text: { contains: systemAffected },
+	const apiToken = process.env.NOTION_API_TOKEN;
+	if (!apiToken) throw new Error("NOTION_API_TOKEN not configured");
+
+	const res = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiToken}`,
+			"Notion-Version": "2022-06-28",
+			"Content-Type": "application/json",
 		},
-		sorts: [{ timestamp: "created_time", direction: "ascending" }],
-		page_size: 10,
+		body: JSON.stringify({
+			filter: {
+				property: "System Affected",
+				rich_text: { contains: systemAffected },
+			},
+			sorts: [{ timestamp: "created_time", direction: "ascending" }],
+			page_size: 10,
+		}),
 	});
+
+	if (!res.ok) {
+		const errText = await res.text();
+		throw new Error(`Notion API error ${res.status}: ${errText}`);
+	}
 
 	type PropSlice = Record<string, {
 		title?: Array<{ plain_text: string }>;
@@ -241,15 +256,17 @@ async function querySystemHistory(notion: Client, systemAffected: string): Promi
 		select?: { name: string } | null;
 	}>;
 
-	return response.results.flatMap((result) => {
-		if (result.object !== "page" || !("created_time" in result)) return [];
-		const page = result as PageObjectResponse;
-		const props = page.properties as unknown as PropSlice;
+	type NotionPage = { object: string; id: string; created_time: string; properties: PropSlice };
+	const data = (await res.json()) as { results: Array<NotionPage> };
+
+	return data.results.flatMap((result) => {
+		if (result.object !== "page") return [];
+		const props = result.properties;
 		return [{
 			decision_made: props["Decision"]?.title?.[0]?.plain_text ?? "",
 			rationale: props["Rationale"]?.rich_text?.[0]?.plain_text ?? "",
 			decision_type: props["Decision Type"]?.select?.name ?? "",
-			created_time: page.created_time,
+			created_time: result.created_time,
 		}];
 	});
 }
