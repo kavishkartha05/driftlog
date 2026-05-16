@@ -391,6 +391,7 @@ async function upsertSystemPage(
 	let firstH2 = true;
 	let inCodeBlock = false;
 	const codeBuffer: string[] = [];
+	let tableHeaderEmitted = false;
 
 	for (const line of content.split("\n")) {
 		if (line.startsWith("```")) {
@@ -404,20 +405,36 @@ async function upsertSystemPage(
 			inCodeBlock = !inCodeBlock;
 		} else if (inCodeBlock) {
 			codeBuffer.push(line);
-		} else if (line.startsWith("## ")) {
-			if (!firstH2) blocks.push({ type: "divider", divider: {} });
-			firstH2 = false;
-			blocks.push({ type: "heading_2", heading_2: { rich_text: parseInlineBold(line.slice(3)) } });
-		} else if (line.startsWith("### ")) {
-			blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(line.slice(4)) } });
-		} else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
-			blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(line.slice(2, -2)) } });
-		} else if (line.startsWith("- ") || line.startsWith("* ")) {
-			blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: parseInlineBold(line.slice(2)) } });
-		} else if (/^\d+\.\s/.test(line)) {
-			blocks.push({ type: "numbered_list_item", numbered_list_item: { rich_text: parseInlineBold(line.replace(/^\d+\.\s/, "")) } });
-		} else if (line.trim().length > 0) {
-			blocks.push({ type: "paragraph", paragraph: { rich_text: parseInlineBold(line) } });
+		} else if (line.startsWith("|") && line.endsWith("|")) {
+			// Skip separator rows (contain only |, -, and spaces).
+			if (/^[\|\-\s]+$/.test(line)) {
+				continue;
+			}
+			const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+			if (!tableHeaderEmitted) {
+				blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(cells.join(" · ")) } });
+				tableHeaderEmitted = true;
+			} else {
+				blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: parseInlineBold(cells.join(" → ")) } });
+			}
+		} else {
+			// Any non-table line resets the table header flag for the next table.
+			tableHeaderEmitted = false;
+			if (line.startsWith("## ")) {
+				if (!firstH2) blocks.push({ type: "divider", divider: {} });
+				firstH2 = false;
+				blocks.push({ type: "heading_2", heading_2: { rich_text: parseInlineBold(line.slice(3)) } });
+			} else if (line.startsWith("### ")) {
+				blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(line.slice(4)) } });
+			} else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
+				blocks.push({ type: "heading_3", heading_3: { rich_text: parseInlineBold(line.slice(2, -2)) } });
+			} else if (line.startsWith("- ") || line.startsWith("* ")) {
+				blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: parseInlineBold(line.slice(2)) } });
+			} else if (/^\d+\.\s/.test(line)) {
+				blocks.push({ type: "numbered_list_item", numbered_list_item: { rich_text: parseInlineBold(line.replace(/^\d+\.\s/, "")) } });
+			} else if (line.trim().length > 0) {
+				blocks.push({ type: "paragraph", paragraph: { rich_text: parseInlineBold(line) } });
+			}
 		}
 	}
 
