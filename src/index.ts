@@ -625,18 +625,22 @@ worker.sync("weeklyDigest", {
 				max_tokens: 2048,
 				messages: [{
 					role: "user",
-					content: `You are a staff engineer writing a weekly architecture digest for the team.
+					content: `You are a staff engineer writing a weekly architecture digest.
 
 Here are the architectural decisions recorded this week:
 ${decisionList}
 
-Write a "This Week in Architecture" digest with exactly these four sections in order:
-## 🗓️ This Week in Architecture
-## 📊 Decision Summary
-## 🔍 Key Themes
-## ⚠️ Watch List (systems with multiple changes that may need attention)
+Write it using exactly these four sections:
 
-Use markdown. Be specific and concise. Do not add any sections beyond the four listed.`,
+Section 1 — '## 🗓️ This Week in Architecture': write 2-3 sentences summarizing the week's architectural activity.
+
+Section 2 — '## 📊 Decision Summary': write a markdown table with these exact columns: # | Date | System | Type | Decision. One row per ADR, no extra commentary.
+
+Section 3 — '## 🔍 Key Themes': write 3-4 themes. Each theme as a ### heading followed by 2-3 sentences.
+
+Section 4 — '## ⚠️ Watch List': write a markdown table with columns: System | Changes This Week | Concern. Only include systems with 2 or more changes or notable risks. After the table, for each watched system write a code block showing the files changed this week as a directory tree, with a one-line description after each file using a left arrow comment.
+
+Use markdown throughout. Be specific and technical. Do not add any sections beyond these four.`,
 				}],
 			}),
 		});
