@@ -53,7 +53,10 @@ The page is created on first encounter and updated in place on subsequent PRs. N
 
 ### 1. Notion
 
-Create an [internal integration](https://www.notion.so/profile/integrations/internal) and grant it access to:
+Create an internal integration (see screenshot below) and grant it access to your Driftlog database and System Map page.
+
+![Driftlog connection setup](driftlog_connection_ss.png)
+
 - Your decisions database (copy its ID → `DATABASE_ID`)
 - Your System Map page (copy its ID → `SYSTEM_MAP_PAGE_ID`)
 
