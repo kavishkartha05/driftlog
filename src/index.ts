@@ -593,7 +593,6 @@ worker.webhook("onPullRequest", {
 			console.log("[driftlog] Notion page created:", notionUrl);
 
 			const history = await queryRecentHistory(notion);
-			console.log("[driftlog] History length:", history.length, "for system:", analysis.system_affected);
 
 			let driftResult: { has_drift: boolean; drift_summary: string; conflicting_decision: string };
 			if (history.length > 0) {
