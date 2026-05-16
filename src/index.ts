@@ -253,6 +253,84 @@ async function querySystemHistory(notion: Client, systemAffected: string): Promi
 }
 
 // ---------------------------------------------------------------------------
+// System architecture page generation
+// ---------------------------------------------------------------------------
+
+async function generateSystemPage(
+	systemAffected: string,
+	history: DecisionRecord[],
+	latestAnalysis: ArchitecturalAnalysis,
+): Promise<string> {
+	const apiKey = process.env.ANTHROPIC_API_KEY;
+	if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
+
+	const historySection = history.length > 0
+		? history.map((r, i) =>
+			`${i + 1}. [${r.created_time.slice(0, 10)}] (${r.decision_type}) ${r.decision_made}\n   Rationale: ${r.rationale}`
+		).join("\n")
+		: "(no prior decisions recorded)";
+
+	const prompt = history.length === 0
+		? `You are a software architect. Write a rich system architecture page for the system "${systemAffected}" based solely on the following decision.
+
+Latest decision:
+- Type: ${latestAnalysis.decision_type}
+- Decision: ${latestAnalysis.decision_made}
+- Rationale: ${latestAnalysis.rationale}
+- Files: ${latestAnalysis.files_changed.join(", ")}
+
+Write the page with exactly these four sections in order:
+## What this system does
+## Key decisions made
+## Emerging patterns
+## Current architectural state
+
+Use markdown. Be specific and technical. Do not add any sections beyond the four listed.`
+		: `You are a software architect. Write a rich system architecture page for the system "${systemAffected}" based on its full decision history and the latest change.
+
+Decision history (oldest to newest):
+${historySection}
+
+Latest decision:
+- Type: ${latestAnalysis.decision_type}
+- Decision: ${latestAnalysis.decision_made}
+- Rationale: ${latestAnalysis.rationale}
+- Files: ${latestAnalysis.files_changed.join(", ")}
+
+Write the page with exactly these four sections in order:
+## What this system does
+## Key decisions made
+## Emerging patterns
+## Current architectural state
+
+Use markdown. Be specific and technical. Synthesize patterns across the full history. Do not add any sections beyond the four listed.`;
+
+	const res = await fetch("https://api.anthropic.com/v1/messages", {
+		method: "POST",
+		headers: {
+			"x-api-key": apiKey,
+			"anthropic-version": "2023-06-01",
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			model: "claude-sonnet-4-6",
+			max_tokens: 2048,
+			messages: [{ role: "user", content: prompt }],
+		}),
+	});
+
+	if (!res.ok) {
+		const errText = await res.text();
+		throw new Error(`Anthropic API error ${res.status}: ${errText}`);
+	}
+
+	const data = (await res.json()) as { content: Array<{ type: string; text: string }> };
+	const text = data.content.find((c) => c.type === "text")?.text;
+	if (!text) throw new Error("Anthropic returned no text content");
+	return text;
+}
+
+// ---------------------------------------------------------------------------
 // Webhook handler
 // ---------------------------------------------------------------------------
 
