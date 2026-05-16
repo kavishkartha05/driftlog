@@ -431,6 +431,23 @@ worker.webhook("onPullRequest", {
 			const { action, pull_request: pr, repository } = event.body as unknown as PrPayload;
 			if (!HANDLED_ACTIONS.has(action)) continue;
 
+			const dedupRes = await fetch(`https://api.notion.com/v1/databases/${process.env.DATABASE_ID}/query`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${process.env.NOTION_API_TOKEN}`,
+					"Notion-Version": "2022-06-28",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					filter: { property: "PR URL", url: { equals: pr.html_url } },
+				}),
+			});
+			const dedupData = (await dedupRes.json()) as { results: unknown[] };
+			if (dedupData.results.length > 0) {
+				console.log("[driftlog] PR already processed, skipping");
+				continue;
+			}
+
 			console.log(`[driftlog] PR #${pr.number} (${action}): ${pr.title}`);
 
 			const diff = await fetchPrDiff(repository.full_name, pr.number);
