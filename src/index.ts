@@ -75,6 +75,7 @@ async function postGitHubComment(
 	prNumber: number,
 	notionUrl: string,
 	analysis: ArchitecturalAnalysis,
+	systemPageUrl: string,
 ): Promise<void> {
 	const token = process.env.GITHUB_TOKEN;
 	const body = [
@@ -86,6 +87,7 @@ async function postGitHubComment(
 		`**Key Files:** ${analysis.files_changed.slice(0, 5).join(", ")}`,
 		"",
 		`[View full rationale in Notion](${notionUrl})`,
+		`[View system architecture page in Notion](${systemPageUrl})`,
 	].join("\n");
 
 	const res = await fetch(`https://api.github.com/repos/${repoFullName}/issues/${prNumber}/comments`, {
@@ -421,7 +423,12 @@ worker.webhook("onPullRequest", {
 			const notionUrl = await createNotionPage(notion, analysis, pr.html_url, pr.title);
 			console.log("[driftlog] Notion page created:", notionUrl);
 
-			await postGitHubComment(repository.full_name, pr.number, notionUrl, analysis);
+			const history = await querySystemHistory(notion, analysis.system_affected);
+			const systemPageContent = await generateSystemPage(analysis.system_affected, history, analysis);
+			const systemPageUrl = await upsertSystemPage(notion, analysis.system_affected, systemPageContent);
+			console.log("[driftlog] System page upserted:", systemPageUrl);
+
+			await postGitHubComment(repository.full_name, pr.number, notionUrl, analysis, systemPageUrl);
 			console.log("[driftlog] GitHub comment posted");
 		}
 	},
