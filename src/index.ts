@@ -331,6 +331,69 @@ Use markdown. Be specific and technical. Synthesize patterns across the full his
 }
 
 // ---------------------------------------------------------------------------
+// System page upsert
+// ---------------------------------------------------------------------------
+
+async function upsertSystemPage(
+	notion: Client,
+	systemAffected: string,
+	content: string,
+): Promise<string> {
+	const paragraphBlocks = content
+		.split("\n")
+		.filter((line) => line.trim().length > 0)
+		.map((line) => ({
+			type: "paragraph" as const,
+			paragraph: {
+				rich_text: [{ type: "text" as const, text: { content: line } }],
+			},
+		}));
+
+	// Search for an existing page whose title exactly matches systemAffected
+	const searchResult = await notion.search({
+		query: systemAffected,
+		filter: { property: "object", value: "page" },
+		page_size: 10,
+	});
+
+	const existing = searchResult.results.find((result) => {
+		if (result.object !== "page" || !("properties" in result)) return false;
+		const page = result as PageObjectResponse;
+		const titleProp = page.properties["title"] as unknown as {
+			title: Array<{ plain_text: string }>;
+		} | undefined;
+		return titleProp?.title?.[0]?.plain_text === systemAffected;
+	}) as PageObjectResponse | undefined;
+
+	if (existing) {
+		// Archive all existing child blocks
+		const children = await notion.blocks.children.list({ block_id: existing.id });
+		await Promise.all(
+			children.results.map((block) => notion.blocks.delete({ block_id: block.id })),
+		);
+
+		// Append fresh content
+		await notion.blocks.children.append({
+			block_id: existing.id,
+			children: paragraphBlocks,
+		});
+
+		return `https://notion.so/${existing.id.replace(/-/g, "")}`;
+	}
+
+	// Create a new workspace-level page
+	const page = await notion.pages.create({
+		parent: { workspace: true },
+		properties: {
+			title: { title: [{ text: { content: systemAffected } }] },
+		},
+		children: paragraphBlocks,
+	});
+
+	return `https://notion.so/${page.id.replace(/-/g, "")}`;
+}
+
+// ---------------------------------------------------------------------------
 // Webhook handler
 // ---------------------------------------------------------------------------
 
