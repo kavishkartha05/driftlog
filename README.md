@@ -56,6 +56,7 @@ The page is created on first encounter and updated in place on subsequent PRs. N
 Create an internal integration (see screenshot below) and grant it access to your Driftlog database and System Map page.
 
 ![Driftlog connection setup](driftlog_connection_ss.png)
+![Driftlog connection setup](driftlog_connection_ss2.png)
 
 - Your decisions database (copy its ID → `DATABASE_ID`)
 - Your System Map page (copy its ID → `SYSTEM_MAP_PAGE_ID`)
