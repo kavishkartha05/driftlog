@@ -361,12 +361,30 @@ async function upsertSystemPage(
 	const plainText = (text: string) => [{ type: "text" as const, text: { content: text } }];
 
 	function parseInlineBold(text: string) {
-		const parts = text.split("**");
-		return parts.map((part, i) => ({
-			type: "text" as const,
-			text: { content: part },
-			...(i % 2 === 1 ? { annotations: { bold: true as const } } : {}),
-		})).filter((rt) => rt.text.content.length > 0);
+		const result: Array<{ type: "text"; text: { content: string }; annotations?: { bold?: boolean; code?: boolean } }> = [];
+		// Split on backticks first; odd-indexed segments are inline code spans.
+		const codeSegments = text.split("`");
+		for (let ci = 0; ci < codeSegments.length; ci++) {
+			const segment = codeSegments[ci];
+			if (ci % 2 === 1) {
+				if (segment.length > 0) {
+					result.push({ type: "text", text: { content: segment }, annotations: { code: true } });
+				}
+			} else {
+				// Outside backticks — split on ** for bold.
+				const boldParts = segment.split("**");
+				for (let bi = 0; bi < boldParts.length; bi++) {
+					const part = boldParts[bi];
+					if (part.length > 0) {
+						result.push(bi % 2 === 1
+							? { type: "text", text: { content: part }, annotations: { bold: true } }
+							: { type: "text", text: { content: part } },
+						);
+					}
+				}
+			}
+		}
+		return result;
 	}
 
 	const blocks: BlockObjectRequest[] = [];
