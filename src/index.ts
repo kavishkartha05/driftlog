@@ -402,7 +402,7 @@ async function upsertSystemPage(
 
 	// Create a new workspace-level page
 	const page = await notion.pages.create({
-		parent: { workspace: true },
+		parent: { page_id: process.env.SYSTEM_MAP_PAGE_ID! },
 		properties: {
 			title: { title: [{ text: { content: systemAffected } }] },
 		},
