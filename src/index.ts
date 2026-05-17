@@ -646,6 +646,7 @@ worker.tool("queryArchitecture", {
 		question: j.string().describe("The natural language question to ask about the codebase architecture"),
 	}),
 	execute: async ({ question }, { notion: _notion }) => {
+		console.log("[driftlog:tool] Using token prefix:", process.env.NOTION_API_TOKEN?.slice(0, 15) ?? "MISSING");
 		const res = await fetch(`https://api.notion.com/v1/databases/${process.env.DATABASE_ID}/query`, {
 			method: "POST",
 			headers: {
