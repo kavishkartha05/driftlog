@@ -645,7 +645,7 @@ worker.tool("queryArchitecture", {
 	schema: j.object({
 		question: j.string().describe("The natural language question to ask about the codebase architecture"),
 	}),
-	execute: async ({ question: _question }) => {
+	execute: async ({ question }) => {
 		const res = await fetch(`https://api.notion.com/v1/databases/${process.env.DATABASE_ID}/query`, {
 			method: "POST",
 			headers: {
@@ -684,7 +684,38 @@ worker.tool("queryArchitecture", {
 
 		console.log("[driftlog:tool] Fetched ADR count:", adrs.length);
 
-		return "Not yet implemented";
+		const formattedAdrs = adrs.map((adr, i) =>
+			`${i + 1}. ${adr.created_time.slice(0, 10)} | ${adr.system_affected} | ${adr.decision_type} | ${adr.decision_made}`
+		).join("\n");
+
+		const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+			method: "POST",
+			headers: {
+				"x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+				"anthropic-version": "2023-06-01",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "claude-sonnet-4-6",
+				max_tokens: 1024,
+				messages: [{
+					role: "user",
+					content: `You are an architectural knowledge assistant for a software team. Below is the complete history of architectural decisions recorded for this codebase. Answer the following question based on these decisions. Be specific, cite relevant decisions by number, and synthesize insights across systems where relevant.
+
+Architectural decisions:
+${formattedAdrs}
+
+Question: ${question}`,
+				}],
+			}),
+		});
+
+		if (!claudeRes.ok) throw new Error(`Anthropic API error ${claudeRes.status}: ${await claudeRes.text()}`);
+
+		const claudeData = (await claudeRes.json()) as { content: Array<{ type: string; text: string }> };
+		const answer = claudeData.content.find((c) => c.type === "text")?.text;
+		if (!answer) throw new Error("Anthropic returned no text content");
+		return answer;
 	},
 });
 
