@@ -767,7 +767,52 @@ worker.tool("generateOnboardingDoc", {
 
 		console.log("[driftlog:onboarding] Fetched ADR count:", adrs.length);
 
-		return "Not yet implemented";
+		const bySystem = new Map<string, typeof adrs>();
+		for (const adr of adrs) {
+			const existing = bySystem.get(adr.system_affected);
+			if (existing) {
+				existing.push(adr);
+			} else {
+				bySystem.set(adr.system_affected, [adr]);
+			}
+		}
+
+		const formattedSections = Array.from(bySystem.entries()).map(([system, decisions]) => {
+			const bullets = decisions.map((d) =>
+				`- [${d.created_time.slice(0, 10)}] (${d.decision_type}) ${d.decision_made}\n  Rationale: ${d.rationale}`
+			).join("\n");
+			return `### ${system}\n${bullets}`;
+		}).join("\n\n");
+
+		const apiKey = process.env.ANTHROPIC_API_KEY;
+		if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
+
+		const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+			method: "POST",
+			headers: {
+				"x-api-key": apiKey,
+				"anthropic-version": "2023-06-01",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "claude-sonnet-4-6",
+				max_tokens: 4096,
+				messages: [{
+					role: "user",
+					content: `You are a staff engineer writing a new hire onboarding guide. Based on the architectural decisions below grouped by system, write a comprehensive guide for someone joining this engineering team today. Use exactly these sections in order: ## 👋 Welcome to the Codebase, ## 🗺️ System Overview, ## 🔑 Key Systems (one ### subsection per system), ## 🏗️ How It All Fits Together, ## ⚠️ Things to Know Before You Touch Anything. Be specific, practical and technical.
+
+${formattedSections}`,
+				}],
+			}),
+		});
+
+		if (!claudeRes.ok) throw new Error(`Anthropic API error ${claudeRes.status}: ${await claudeRes.text()}`);
+
+		const claudeData = (await claudeRes.json()) as { content: Array<{ type: string; text: string }> };
+		const content = claudeData.content.find((c) => c.type === "text")?.text;
+		if (!content) throw new Error("Anthropic returned no text content");
+
+		return content;
 	},
 });
 
