@@ -737,7 +737,7 @@ worker.tool("generateOnboardingDoc", {
 			},
 			body: JSON.stringify({
 				sorts: [{ timestamp: "created_time", direction: "ascending" }],
-				page_size: 50,
+				page_size: 20,
 			}),
 		});
 
@@ -796,7 +796,7 @@ worker.tool("generateOnboardingDoc", {
 			},
 			body: JSON.stringify({
 				model: "claude-sonnet-4-6",
-				max_tokens: 4096,
+				max_tokens: 2048,
 				messages: [{
 					role: "user",
 					content: `You are a staff engineer writing a new hire onboarding guide. Based on the architectural decisions below grouped by system, write a comprehensive guide for someone joining this engineering team today. Use exactly these sections in order: ## 👋 Welcome to the Codebase, ## 🗺️ System Overview, ## 🔑 Key Systems (one ### subsection per system), ## 🏗️ How It All Fits Together, ## ⚠️ Things to Know Before You Touch Anything. Be specific, practical and technical.
