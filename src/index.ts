@@ -650,6 +650,21 @@ worker.webhook("onPullRequest", {
 				driftResult = { has_drift: false, drift_summary: "", conflicting_decision: "" };
 			}
 
+			const healthScore = computeHealthScore(analysis.system_affected, history, driftResult.has_drift);
+			console.log(`[driftlog] Health score for ${analysis.system_affected}: ${healthScore}`);
+
+			const rawId = notionUrl.slice(-32);
+			const notionPageId = `${rawId.slice(0, 8)}-${rawId.slice(8, 12)}-${rawId.slice(12, 16)}-${rawId.slice(16, 20)}-${rawId.slice(20)}`;
+			await fetch(`https://api.notion.com/v1/pages/${notionPageId}`, {
+				method: "PATCH",
+				headers: {
+					Authorization: `Bearer ${process.env.NOTION_API_TOKEN}`,
+					"Notion-Version": "2022-06-28",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ properties: { "Health Score": { number: healthScore } } }),
+			});
+
 			const systemPageContent = await generateSystemPage(analysis.system_affected, history, analysis);
 			const systemPageUrl = await upsertSystemPage(notion, analysis.system_affected, systemPageContent);
 			console.log("[driftlog] System page upserted:", systemPageUrl);
