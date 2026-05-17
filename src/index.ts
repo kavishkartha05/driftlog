@@ -662,7 +662,7 @@ worker.webhook("onPullRequest", {
 					"Notion-Version": "2022-06-28",
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ properties: { "Health Score": { number: healthScore } } }),
+				body: JSON.stringify({ properties: { "Health Score": { number: healthScore }, "Has Drift": { checkbox: driftResult.has_drift } } }),
 			});
 
 			const systemPageContent = await generateSystemPage(analysis.system_affected, history, analysis);
