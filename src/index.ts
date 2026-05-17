@@ -645,7 +645,47 @@ worker.tool("queryArchitecture", {
 	schema: j.object({
 		question: j.string().describe("The natural language question to ask about the codebase architecture"),
 	}),
-	execute: () => "Not yet implemented",
+	execute: async ({ question: _question }) => {
+		const res = await fetch(`https://api.notion.com/v1/databases/${process.env.DATABASE_ID}/query`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${process.env.NOTION_API_TOKEN}`,
+				"Notion-Version": "2022-06-28",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				sorts: [{ timestamp: "created_time", direction: "ascending" }],
+				page_size: 50,
+			}),
+		});
+
+		if (!res.ok) throw new Error(`Notion API error ${res.status}: ${await res.text()}`);
+
+		type PropSlice = Record<string, {
+			title?: Array<{ plain_text: string }>;
+			rich_text?: Array<{ plain_text: string }>;
+			select?: { name: string } | null;
+		}>;
+		type NotionPage = { object: string; created_time: string; properties: PropSlice };
+		const data = (await res.json()) as { results: Array<NotionPage> };
+
+		const adrs = data.results.flatMap((result) => {
+			if (result.object !== "page") return [];
+			const props = result.properties;
+			return [{
+				decision_made: props["Decision"]?.title?.[0]?.plain_text ?? "",
+				system_affected: props["System Affected"]?.rich_text?.[0]?.plain_text ?? "",
+				decision_type: props["Decision Type"]?.select?.name ?? "",
+				created_time: result.created_time,
+			}];
+		});
+
+		if (adrs.length === 0) return "No architectural decisions have been recorded yet.";
+
+		console.log("[driftlog:tool] Fetched ADR count:", adrs.length);
+
+		return "Not yet implemented";
+	},
 });
 
 // ---------------------------------------------------------------------------
