@@ -229,6 +229,7 @@ async function createNotionPage(
 
 interface DecisionRecord {
 	decision_made: string;
+	system_affected: string;
 	rationale: string;
 	decision_type: string;
 	created_time: string;
@@ -277,6 +278,7 @@ async function querySystemHistory(notion: Client, systemAffected: string): Promi
 		const props = result.properties;
 		return [{
 			decision_made: props["Decision"]?.title?.[0]?.plain_text ?? "",
+			system_affected: props["System Affected"]?.rich_text?.[0]?.plain_text ?? "",
 			rationale: props["Rationale"]?.rich_text?.[0]?.plain_text ?? "",
 			decision_type: props["Decision Type"]?.select?.name ?? "",
 			created_time: result.created_time,
@@ -323,11 +325,34 @@ async function queryRecentHistory(notion: Client): Promise<DecisionRecord[]> {
 		const props = result.properties;
 		return [{
 			decision_made: props["Decision"]?.title?.[0]?.plain_text ?? "",
+			system_affected: props["System Affected"]?.rich_text?.[0]?.plain_text ?? "",
 			rationale: props["Rationale"]?.rich_text?.[0]?.plain_text ?? "",
 			decision_type: props["Decision Type"]?.select?.name ?? "",
 			created_time: result.created_time,
 		}];
 	});
+}
+
+// ---------------------------------------------------------------------------
+// Health score
+// ---------------------------------------------------------------------------
+
+function computeHealthScore(
+	systemAffected: string,
+	history: DecisionRecord[],
+	driftDetected: boolean,
+): number {
+	const known = history.filter((r) => r.decision_type !== "");
+	const churnEntries = known.filter((r) => r.system_affected?.includes(systemAffected));
+	const churnCount = churnEntries.length;
+	const refactorCount = churnEntries.filter((r) => r.decision_type === "refactor").length;
+
+	let score = 10;
+	if (churnCount > 2) score -= churnCount - 2;
+	if (driftDetected) score -= 2;
+	if (churnCount > 0 && refactorCount / churnCount > 0.5) score -= 1;
+
+	return Math.min(10, Math.max(1, score));
 }
 
 // ---------------------------------------------------------------------------
