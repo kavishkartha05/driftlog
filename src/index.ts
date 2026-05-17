@@ -727,7 +727,7 @@ worker.tool("generateOnboardingDoc", {
 	title: "Generate Onboarding Guide",
 	description: "Synthesizes all recorded architectural decisions into a new engineer onboarding guide and saves it as a Notion page",
 	schema: j.object({}),
-	execute: async (_args, { notion: _notion }) => {
+	execute: async (_args, { notion }) => {
 		const res = await fetch(`https://api.notion.com/v1/databases/${process.env.DATABASE_ID}/query`, {
 			method: "POST",
 			headers: {
@@ -812,7 +812,45 @@ ${formattedSections}`,
 		const content = claudeData.content.find((c) => c.type === "text")?.text;
 		if (!content) throw new Error("Anthropic returned no text content");
 
-		return content;
+		const blocks = contentToBlocks(content);
+
+		const searchResult = await notion.search({
+			query: "New Engineer Onboarding Guide",
+			filter: { property: "object", value: "page" },
+			page_size: 5,
+		});
+
+		const existing = searchResult.results.find((result) => {
+			if (result.object !== "page" || !("properties" in result)) return false;
+			const page = result as PageObjectResponse;
+			const titleProp = page.properties["title"] as unknown as {
+				title: Array<{ plain_text: string }>;
+			} | undefined;
+			return titleProp?.title?.[0]?.plain_text?.startsWith("New Engineer Onboarding Guide");
+		}) as PageObjectResponse | undefined;
+
+		let pageId: string;
+
+		if (existing) {
+			const children = await notion.blocks.children.list({ block_id: existing.id });
+			await Promise.all(
+				children.results.map((block) => notion.blocks.delete({ block_id: block.id })),
+			);
+			await notion.blocks.children.append({ block_id: existing.id, children: blocks });
+			pageId = existing.id;
+		} else {
+			const today = new Date().toISOString().slice(0, 10);
+			const page = await notion.pages.create({
+				parent: { page_id: process.env.SYSTEM_MAP_PAGE_ID! },
+				properties: {
+					title: { title: [{ text: { content: `New Engineer Onboarding Guide — ${today}` } }] },
+				},
+				children: blocks,
+			});
+			pageId = page.id;
+		}
+
+		return `https://notion.so/${pageId.replace(/-/g, "")}`;
 	},
 });
 
