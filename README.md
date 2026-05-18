@@ -21,22 +21,6 @@ GitHub PR → Notion Worker → Claude (claude-sonnet-4-6) → ADR DB + System M
 
 ## What gets created
 
-### ADR Database Entry
-
-Each PR produces a structured page in the Notion decisions database:
-
-| Field | Description |
-|---|---|
-| Decision | One-sentence description of the architectural decision (title) |
-| System Affected | The module, service, or component impacted |
-| Decision Type | One of `refactor`, `new_pattern`, `dependency_change`, `api_contract_change` |
-| Rationale | Why the change was made, inferred from the diff and PR description |
-| Files Changed | Most architecturally significant files |
-| PR Title | Back-link label to the source PR |
-| PR URL | Direct link to the GitHub PR |
-| Health Score | Computed signal based on churn, drift, and refactor patterns |
-| Drift Flag | Checkbox — checked if this decision contradicts a prior ADR |
-
 ### System Architecture Page
 
 A living page per system in the Notion System Map, regenerated on every relevant PR. Claude synthesizes the full decision history for the system into four sections:
@@ -89,12 +73,13 @@ ntn workers exec queryArchitecture -d '{"question": "Why did we move from REST t
 
 ## Tech stack
 
-- [Notion Workers](https://developers.notion.com/docs/notion-workers) — webhook runtime, sync engine, Notion API client (`ntn` CLI)
-- [Anthropic Claude](https://anthropic.com) (`claude-sonnet-4-6`) — diff analysis, architecture synthesis, drift detection, digest and onboarding generation
-- Notion API — ADR database writes, system page upserts, rich block formatting
-- GitHub Webhooks — PR event triggers
-- TypeScript (strict mode)
-- React/Vite — companion frontend dashboard (separate repo, see below)
+| Component | Details |
+|---|---|
+| Notion Workers | TypeScript serverless runtime, deployed via `ntn` CLI |
+| Anthropic Claude | `claude-sonnet-4-6` for diff analysis, drift detection, and doc generation |
+| Notion API | ADR database + System Map as the persistent memory layer |
+| GitHub Webhooks | Triggers the Worker on every PR open event |
+| React + Vite | Companion frontend dashboard with live activity feed |
 
 ## Environment variables
 
