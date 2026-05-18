@@ -212,7 +212,7 @@ ntn workers runs logs <runId>    # logs for a specific run
 
 ## Frontend dashboard
 
-A companion React/Vite dashboard at [github.com/kavishkartha05/driftlog-frontend](https://github.com/kavishkartha05/driftlog-frontend) shows a live activity feed with health scores, drift warnings, and auto-refresh.
+A companion React/Vite dashboard at [github.com/kavishkartha05/driftlog-frontend](https://github.com/kavishkartha05/driftlog-frontend) shows a live activity feed with health scores, drift warnings, and auto-refresh. **Live demo:** [driftlog-frontend.vercel.app](https://driftlog-frontend.vercel.app/)
 
 ```bash
 git clone https://github.com/kavishkartha05/driftlog-frontend.git
